@@ -1,0 +1,136 @@
+# ------------------------------------------------------------------
+# Ambiente completo em UMA EC2 (Docker Compose)
+#   - 2 containers de aplicação (código da equipe)
+#   - 2 containers de estado (Postgres + Redis)
+#   - 3 containers de observabilidade (Prometheus, Grafana, cAdvisor)
+#
+# Serviços AWS (SNS, SQS, Lambda, CloudWatch) NÃO estão aqui:
+# eles são gerenciados e acessados via SDK usando o IAM Role da EC2.
+# ------------------------------------------------------------------
+
+services:
+  votes-api:
+    build: ./services/votes-api
+    image: votacao/votes-api:latest
+    restart: always
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/enquetes
+      REDIS_URL: redis://redis:6379
+      SNS_TOPIC_ARN: ${SNS_TOPIC_ARN}
+      AWS_REGION: ${AWS_REGION}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+    ports:
+      - "3000:3000"          # única porta de negócio exposta
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: awslogs
+      options:
+        awslogs-group: /votacao/votes-api
+        awslogs-region: ${AWS_REGION}
+        awslogs-stream: api
+
+  tally-worker:
+    build: ./services/tally-worker
+    image: votacao/tally-worker:latest
+    restart: always
+    environment:
+      SQS_QUEUE_URL: ${SQS_QUEUE_URL}
+      REDIS_URL: redis://redis:6379
+      AWS_REGION: ${AWS_REGION}
+      METRICS_PORT: 9101
+    # sem "ports": só acessível na rede interna do Docker
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9101/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: awslogs
+      options:
+        awslogs-group: /votacao/tally-worker
+        awslogs-region: ${AWS_REGION}
+        awslogs-stream: worker
+
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: enquetes
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d enquetes"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # sem "ports": o banco não é exposto à internet
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  prometheus:
+    image: prom/prometheus:latest
+    restart: always
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: always
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "3001:3000"
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    restart: always
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+
+volumes:
+  pgdata:      # fica no EBS da EC2 -> sobrevive a stop/start da instância
+  redisdata:
+  promdata:
+  grafanadata:

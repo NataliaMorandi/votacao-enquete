@@ -1,0 +1,18 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: votes-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["votes-api:3000"]
+
+  - job_name: tally-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["tally-worker:9101"]
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
