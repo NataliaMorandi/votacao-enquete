@@ -45,3 +45,20 @@ variable "criar_eip" {
   type        = bool
   default     = false
 }
+
+# ------------------------------------------------------------------
+# Modo laboratório (Vocareum / AWS Academy)
+# Nesses ambientes não é permitido criar usuários/roles IAM.
+# Informe o instance profile e a role que o lab já fornece.
+# ------------------------------------------------------------------
+variable "instance_profile_name" {
+  description = "Nome do instance profile existente (ex.: LabInstanceProfile). Vazio = cria um novo."
+  type        = string
+  default     = ""
+}
+
+variable "lambda_role_arn" {
+  description = "ARN de uma role existente para a Lambda (ex.: arn:aws:iam::123:role/LabRole). Vazio = cria uma nova."
+  type        = string
+  default     = ""
+}

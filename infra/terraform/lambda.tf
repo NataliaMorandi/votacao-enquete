@@ -12,7 +12,7 @@ resource "aws_lambda_function" "close_expired" {
   description      = "Fecha enquetes com prazo vencido e publica enquete.encerrada"
   runtime          = "nodejs20.x"
   handler          = "index.handler"
-  role             = aws_iam_role.lambda.arn
+  role             = local.criar_iam_lambda ? aws_iam_role.lambda[0].arn : var.lambda_role_arn
   filename         = data.archive_file.lambda.output_path
   source_code_hash = data.archive_file.lambda.output_base64sha256
   timeout          = 30

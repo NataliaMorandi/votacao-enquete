@@ -38,7 +38,7 @@ resource "aws_security_group" "app" {
   }
 
   egress {
-    description = "Saída (AWS SDK, dnf, docker pull)"
+    description = "Saida para AWS SDK, dnf e docker pull"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -56,7 +56,8 @@ resource "aws_instance" "app" {
   instance_type               = var.instance_type
   subnet_id                   = tolist(data.aws_subnets.default.ids)[0]
   vpc_security_group_ids      = [aws_security_group.app.id]
-  iam_instance_profile        = aws_iam_instance_profile.ec2_app.name
+  # Conta normal: profile criado aqui. Laboratório: profile existente (LabInstanceProfile).
+  iam_instance_profile        = local.criar_iam_ec2 ? aws_iam_instance_profile.ec2_app[0].name : data.aws_iam_instance_profile.existente[0].name
   associate_public_ip_address = true
   key_name                    = var.key_name == "" ? null : var.key_name
 

@@ -16,12 +16,19 @@ resource "random_password" "internal_token" {
   special = false
 }
 
+locals {
+  # Se um instance profile existente foi informado (laboratório),
+  # não criamos role/profile — apenas usamos o que já existe.
+  criar_iam_ec2 = var.instance_profile_name == ""
+  criar_iam_lambda = var.lambda_role_arn == ""
+}
+
 # ------------------------------------------------------------------
-# IAM Role da EC2 (instance profile)
-# O SDK da AWS pega credenciais temporárias via metadata — sem access key
+# Caminho A: criar IAM Role da EC2 (conta normal)
 # ------------------------------------------------------------------
 resource "aws_iam_role" "ec2_app" {
-  name = "${var.project}-ec2-app"
+  count = local.criar_iam_ec2 ? 1 : 0
+  name  = "${var.project}-ec2-app"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -34,8 +41,9 @@ resource "aws_iam_role" "ec2_app" {
 }
 
 resource "aws_iam_role_policy" "ec2_app" {
-  name = "${var.project}-ec2-app-policy"
-  role = aws_iam_role.ec2_app.id
+  count = local.criar_iam_ec2 ? 1 : 0
+  name  = "${var.project}-ec2-app-policy"
+  role  = aws_iam_role.ec2_app[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -72,15 +80,25 @@ resource "aws_iam_role_policy" "ec2_app" {
 }
 
 resource "aws_iam_instance_profile" "ec2_app" {
-  name = "${var.project}-ec2-app"
-  role = aws_iam_role.ec2_app.name
+  count = local.criar_iam_ec2 ? 1 : 0
+  name  = "${var.project}-ec2-app"
+  role  = aws_iam_role.ec2_app[0].name
 }
 
 # ------------------------------------------------------------------
-# IAM Role da Lambda (só precisa escrever logs)
+# Caminho B: usar instance profile já existente (laboratório)
+# ------------------------------------------------------------------
+data "aws_iam_instance_profile" "existente" {
+  count = local.criar_iam_ec2 ? 0 : 1
+  name  = var.instance_profile_name
+}
+
+# ------------------------------------------------------------------
+# IAM Role da Lambda
 # ------------------------------------------------------------------
 resource "aws_iam_role" "lambda" {
-  name = "${var.project}-lambda"
+  count = local.criar_iam_lambda ? 1 : 0
+  name  = "${var.project}-lambda"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -93,6 +111,7 @@ resource "aws_iam_role" "lambda" {
 }
 
 resource "aws_iam_role_policy_attachment" "lambda_basic" {
-  role       = aws_iam_role.lambda.name
+  count      = local.criar_iam_lambda ? 1 : 0
+  role       = aws_iam_role.lambda[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
