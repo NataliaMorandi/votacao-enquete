@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Enquetes</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <h1>Enquetes</h1>
+    <p class="sub">Crie, vote e acompanhe os resultados em tempo real</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>Nova enquete</h2>
+      <form id="form-nova" autocomplete="off">
+        <label>
+          Título
+          <input type="text" id="titulo" maxlength="120" required placeholder="Onde vamos almoçar?">
+        </label>
+
+        <label>
+          Descrição (opcional)
+          <input type="text" id="descricao" maxlength="240" placeholder="Sexta-feira, 12h">
+        </label>
+
+        <label>
+          Duração
+          <select id="duracao">
+            <option value="5">5 minutos</option>
+            <option value="15">15 minutos</option>
+            <option value="30" selected>30 minutos</option>
+            <option value="60">1 hora</option>
+            <option value="1440">24 horas</option>
+          </select>
+        </label>
+
+        <div class="campo-opcoes">
+          <label style="margin-bottom:6px">Opções (2 a 10)</label>
+          <div id="lista-opcoes"></div>
+          <button type="button" id="add-opcao" class="btn-ghost">+ adicionar opção</button>
+        </div>
+
+        <p style="margin-top:18px">
+          <button type="submit" class="btn" id="btn-criar">Criar enquete</button>
+        </p>
+        <p id="msg" class="msg" role="status"></p>
+      </form>
+    </section>
+
+    <section>
+      <h2>Enquetes existentes <span class="hint" id="atualizado"></span></h2>
+      <div id="lista" class="grid"></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

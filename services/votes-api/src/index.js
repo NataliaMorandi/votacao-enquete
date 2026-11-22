@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const path = require('path');
 const logger = require('./logger');
 const { pool, waitForDb } = require('./db');
 const { register, httpDuration } = require('./metrics');
@@ -46,6 +47,13 @@ app.get('/metrics', async (_req, res) => {
   res.set('Content-Type', register.contentType);
   res.end(await register.metrics());
 });
+
+// --- Front-end estático (lista de enquetes) ----------------------
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+app.use(express.static(PUBLIC_DIR, { index: 'index.html', extensions: ['html'] }));
+
+// Página da enquete: /e/<id>
+app.get('/e/:id', (_req, res) => res.sendFile(path.join(PUBLIC_DIR, 'enquete.html')));
 
 // --- Rotas de negócio --------------------------------------------
 app.use(routes);

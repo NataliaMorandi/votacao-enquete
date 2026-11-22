@@ -90,7 +90,7 @@ print(f'  curl -s -X POST {api}/enquetes/{d["id"]}/votos \\')
 print('    -H "Content-Type: application/json" \\')
 print(f'    -d \'{{"cpf":"11122233344","opcao_id":"{primeira}"}}\'')
 print()
-print("No navegador:")
+print("Resultado no navegador (JSON):")
 print(f'  {api}/enquetes/{d["id"]}/resultado')
 PY
 

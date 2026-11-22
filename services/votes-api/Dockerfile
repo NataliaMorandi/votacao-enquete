@@ -8,6 +8,7 @@ RUN npm install --omit=dev
 
 # Camada de código
 COPY src ./src
+COPY public ./public
 
 ENV NODE_ENV=production
 EXPOSE 3000
