@@ -5,7 +5,19 @@ Trabalho acadêmico de arquitetura de microserviços: enquetes estilo WhatsApp
 encerramento automático por função serverless e observabilidade completa.
 
 > **Deploy na AWS passo a passo (console):** veja [`DEPLOY.md`](./DEPLOY.md)
+> **Trocar de laboratório / recriar do zero:** [`docs/NOVO-LAB.md`](./docs/NOVO-LAB.md)
+> **Testes:** [`docs/TESTES.md`](./docs/TESTES.md)
 > **Infraestrutura como código:** [`infra/terraform`](./infra/terraform)
+
+## Deploy em 1 comando (AWS CLI)
+
+```bash
+export AWS_PROFILE=lab2
+export INSTANCE_PROFILE=LabInstanceProfile
+export REPO_URL=https://github.com/SEU-USUARIO/votacao-enquete.git
+./scripts/deploy-cli.sh          # cria SNS, SQS, EC2, Lambda, EventBridge...
+./scripts/deploy-cli.sh destroy  # apaga tudo
+```
 
 ---
 

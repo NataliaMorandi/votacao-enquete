@@ -7,3 +7,4 @@ infra/terraform/terraform.tfstate.backup
 infra/terraform/.build/
 *.zip
 .DS_Store
+infra/aws-cli/lab-outputs.env
