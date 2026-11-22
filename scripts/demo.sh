@@ -19,24 +19,35 @@ ENQUETE=$(curl -sS -X POST "$API/enquetes" \
         "opcoes": ["Opção A - Pizza", "Opção B - Japonês", "Opção C - Vegetariano"]
       }')
 
-echo "$ENQUETE" | head -c 400; echo
+if echo "$ENQUETE" | grep -q '"error"'; then
+  echo "Erro ao criar enquete: $ENQUETE"
+  exit 1
+fi
 
-ID=$(echo "$ENQUETE" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
-OPCOES=$(echo "$ENQUETE" | grep -o '"id":"[^"]*"' | tail -n +2 | sed 's/"id":"//;s/"//')
+# Extrai id da enquete e ids das opções com Python (parsing confiável de JSON)
+read -r ID OPT1 OPT2 OPT3 <<< "$(echo "$ENQUETE" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+ids = [o["id"] for o in d["opcoes"]]
+while len(ids) < 3:
+    ids.append(ids[0])
+print(d["id"], *ids[:3])
+')"
 
 echo "==> Enquete: $ID"
+echo "==> Opções: $OPT1 | $OPT2 | $OPT3"
 echo "==> Enviando $N votos (CPFs distintos)"
 
+OPCOES=("$OPT1" "$OPT2" "$OPT3")
 i=0
-for OPCAO in $OPCOES; do
-  for j in 1 2 3 4 5 6 7 8 9 10; do
-    i=$((i+1))
-    [ "$i" -gt "$N" ] && break 2
-    CPF=$(printf '1234567%04d' "$i")
-    curl -sS -o /dev/null -w "%{http_code} " -X POST "$API/enquetes/$ID/votos" \
-      -H 'Content-Type: application/json' \
-      -d "{\"cpf\":\"$CPF\",\"opcao_id\":\"$OPCAO\"}"
-  done
+while [ "$i" -lt "$N" ]; do
+  OPCAO="${OPCOES[$((i % 3))]}"
+  CPF=$(printf '1234567%04d' "$i")
+  CODE=$(curl -sS -o /dev/null -w "%{http_code}" -X POST "$API/enquetes/$ID/votos" \
+    -H 'Content-Type: application/json' \
+    -d "{\"cpf\":\"$CPF\",\"opcao_id\":\"$OPCAO\"}")
+  printf "%s " "$CODE"
+  i=$((i + 1))
 done
 echo ""
 
@@ -44,5 +55,4 @@ echo "==> Aguardando o worker contabilizar..."
 sleep 3
 
 echo "==> Resultado:"
-curl -sS "$API/enquetes/$ID/resultado"
-echo
+curl -sS "$API/enquetes/$ID/resultado" | python3 -m json.tool

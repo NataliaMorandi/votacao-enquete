@@ -8,7 +8,8 @@ exec > >(tee /var/log/votacao-boot.log | logger -t votacao-boot) 2>&1
 
 echo "==> [1/6] Instalando pacotes base"
 dnf update -y
-dnf install -y docker git curl
+# curl NÃO entra na lista: na AL2023 ele conflita com o curl-minimal já instalado
+dnf install -y docker git
 
 systemctl enable --now docker
 usermod -aG docker ec2-user
@@ -22,7 +23,7 @@ if [ ! -f /swapfile ]; then
   echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
 
-echo "==> [3/6] Instalando docker compose v2"
+echo "==> [3/6] Instalando docker compose v2 + buildx"
 ARQ=$(uname -m)
 case $ARQ in
   x86_64)  COMPOSE_ARQ=x86_64 ;;
@@ -32,6 +33,15 @@ esac
 curl -SL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$COMPOSE_ARQ" \
   -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
+
+# buildx >= 0.17 é exigido pelo compose v2 para buildar imagens
+mkdir -p /usr/local/lib/docker/cli-plugins
+BUILDX_TAG=$(curl -fsSL https://api.github.com/repos/docker/buildx/releases/latest \
+  | grep -m1 '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')
+curl -fSL "https://github.com/docker/buildx/releases/download/v$${BUILDX_TAG}/buildx-v$${BUILDX_TAG}.linux-$COMPOSE_ARQ" \
+  -o /usr/local/lib/docker/cli-plugins/docker-buildx
+chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
+docker buildx version
 
 echo "==> [4/6] Clonando aplicação"
 rm -rf /opt/votacao

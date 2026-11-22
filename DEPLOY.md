@@ -159,8 +159,8 @@ Rotina diária:
 
 | Type | Port | Source |
 |---|---|---|
-| Custom TCP | 3000 | My IP (ou 0.0.0.0/0) |
-| Custom TCP | 3001 | My IP (ou 0.0.0.0/0) |
+| Custom TCP | 3000 | **Anywhere-IPv4 (0.0.0.0/0)** — a Lambda chama a API a partir de IPs da AWS |
+| Custom TCP | 3001 | My IP (Grafana só para você) |
 
 4. Outbound: **All traffic** (padrão) → **Create security group**.
 

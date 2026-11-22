@@ -11,11 +11,11 @@ resource "aws_security_group" "app" {
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
-    description = "API votes-api"
+    description = "API votes-api (publica: a Lambda chama de IPs da AWS)"
     from_port   = 3000
     to_port     = 3000
     protocol    = "tcp"
-    cidr_blocks = [var.allowed_cidr]
+    cidr_blocks = [var.api_cidr]
   }
 
   ingress {

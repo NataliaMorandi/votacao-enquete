@@ -29,7 +29,13 @@ variable "key_name" {
 }
 
 variable "allowed_cidr" {
-  description = "CIDR autorizado a acessar API (3000) e Grafana (3001). Use SEU_IP/32 em produção."
+  description = "CIDR autorizado a acessar o Grafana (3001) e SSH. Use SEU_IP/32."
+  type        = string
+  default     = "0.0.0.0/0"
+}
+
+variable "api_cidr" {
+  description = "CIDR autorizado a chamar a API (3000). Precisa ser aberto porque a Lambda chama de IPs da AWS."
   type        = string
   default     = "0.0.0.0/0"
 }
