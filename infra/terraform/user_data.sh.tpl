@@ -38,7 +38,7 @@ chmod +x /usr/local/bin/docker-compose
 # buildx >= 0.17 é exigido pelo compose v2 para buildar imagens
 mkdir -p /usr/local/lib/docker/cli-plugins
 # Versão do buildx pelo redirect de "releases/latest" (evita rate limit da API do GitHub)
-BUILDX_TAG=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+BUILDX_TAG=$(curl -fsSLI -o /dev/null -w '%%{url_effective}' \
   https://github.com/docker/buildx/releases/latest | sed 's|.*/tag/v||')
 [ -n "$BUILDX_TAG" ] || { echo "ERRO: nao foi possivel descobrir a versao do buildx"; exit 1; }
 curl -fsSL --retry 5 --retry-delay 2 "https://github.com/docker/buildx/releases/download/v$${BUILDX_TAG}/buildx-v$${BUILDX_TAG}.linux-$BUILDX_ARQ" \
