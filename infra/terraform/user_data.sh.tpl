@@ -26,9 +26,9 @@ fi
 
 echo "==> [3/6] Instalando docker compose v2 + buildx"
 ARQ=$(uname -m)
-case $ARQ in
-  x86_64)  COMPOSE_ARQ=x86_64 ;;
-  aarch64) COMPOSE_ARQ=aarch64 ;;
+case "$ARQ" in
+  x86_64)  COMPOSE_ARQ=x86_64;  BUILDX_ARQ=amd64 ;;
+  aarch64) COMPOSE_ARQ=aarch64; BUILDX_ARQ=arm64 ;;
   *) echo "arquitetura nao suportada: $ARQ"; exit 1 ;;
 esac
 curl -fsSL --retry 5 --retry-delay 2 "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$COMPOSE_ARQ" \
@@ -41,7 +41,7 @@ mkdir -p /usr/local/lib/docker/cli-plugins
 BUILDX_TAG=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
   https://github.com/docker/buildx/releases/latest | sed 's|.*/tag/v||')
 [ -n "$BUILDX_TAG" ] || { echo "ERRO: nao foi possivel descobrir a versao do buildx"; exit 1; }
-curl -fsSL --retry 5 --retry-delay 2 "https://github.com/docker/buildx/releases/download/v$${BUILDX_TAG}/buildx-v$${BUILDX_TAG}.linux-$COMPOSE_ARQ" \
+curl -fsSL --retry 5 --retry-delay 2 "https://github.com/docker/buildx/releases/download/v$${BUILDX_TAG}/buildx-v$${BUILDX_TAG}.linux-$BUILDX_ARQ" \
   -o /usr/local/lib/docker/cli-plugins/docker-buildx
 chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
 docker buildx version
