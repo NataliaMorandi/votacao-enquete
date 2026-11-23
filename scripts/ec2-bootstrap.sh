@@ -59,8 +59,9 @@ chmod +x /usr/local/bin/docker-compose
 [ -s /usr/local/bin/docker-compose ] || { echo "ERRO: docker-compose vazio"; exit 1; }
 
 mkdir -p /usr/local/lib/docker/cli-plugins
+# python3 lê todo o JSON (grep -m1 fecha o pipe e derruba o curl com SIGPIPE)
 BUILDX_TAG=$(curl -fsSL --retry 5 --retry-delay 2 https://api.github.com/repos/docker/buildx/releases/latest \
-  | grep -m1 '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))')
 curl -fsSL --retry 5 --retry-delay 2 \
   "https://github.com/docker/buildx/releases/download/v${BUILDX_TAG}/buildx-v${BUILDX_TAG}.linux-$COMPOSE_ARQ" \
   -o /usr/local/lib/docker/cli-plugins/docker-buildx
