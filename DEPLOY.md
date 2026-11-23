@@ -44,14 +44,31 @@ Rotina diária:
 
 > Siga na ordem. Cada passo depende do anterior (nomes e ARNs).
 
-## Passo 1 — IAM Role da EC2
+## Passo 1 — IAM: use o que o laboratório já oferece
 
-1. Console → **IAM** → *Roles* → **Create role**.
-2. Trusted entity type: **AWS service** → Use case: **EC2** → **Next**.
-3. Não adicione policy gerenciada → **Next**.
-4. Role name: `votacao-ec2-app` → **Create role**.
-5. Abra a role → aba **Permissions** → **Add permissions** → **Create inline policy** → aba **JSON**.
-6. Cole (troque `CONTA`, `REGIAO` e os nomes se diferentes):
+> ⚠️ **Em laboratório Vocareum / AWS Academy a criação de IAM é bloqueada.**
+> O erro `not authorized to perform: iam:CreateRole` é esperado e **não é falha sua**.
+> Não tente criar usuário, role ou policy — use o que já existe.
+
+1. Console → **IAM** → *Roles* → confirme que existe **`LabRole`**.
+2. Console → **IAM** → *Instance profiles* → confirme **`LabInstanceProfile`**.
+3. Anote o nome do instance profile — ele será usado no **Passo 8** (Launch instance → IAM instance profile).
+4. Pronto. Sem policy inline: a `LabRole` já tem as permissões de SNS, SQS, Lambda e CloudWatch.
+
+Confirme pela CLI (opcional):
+
+```bash
+aws iam list-instance-profiles --query "InstanceProfiles[].InstanceProfileName" --output table
+aws iam get-role --role-name LabRole --query "Role.AssumeRolePolicyDocument.Statement[].Principal.Service[]" --output text \
+  | tr '\t' '\n' | grep -Ei 'lambda|ec2'
+```
+
+<details>
+<summary>Se você estiver numa conta AWS própria (não-laboratório): criar a role</summary>
+
+1. **IAM → Roles → Create role** → *AWS service* → **EC2** → *Next* → *Next*.
+2. Role name: `votacao-ec2-app` → **Create role**.
+3. Na role → **Add permissions** → **Create inline policy** → aba **JSON**:
 
 ```json
 {
@@ -87,7 +104,9 @@ Rotina diária:
 }
 ```
 
-7. Policy name: `votacao-ec2-app-policy` → **Create policy**.
+4. Policy name: `votacao-ec2-app-policy` → **Create policy**.
+
+</details>
 
 ## Passo 2 — SNS (tópico)
 
@@ -245,7 +264,8 @@ o caminho API → SNS → SQS → worker → Redis está funcionando.
 
 1. Console → **Lambda** → **Create function** → **Author from scratch**.
 2. Function name: `votacao-close-expired-polls`. Runtime: **Node.js 20.x**. Architecture: x86_64.
-3. Permissions: **Create a new role with basic Lambda permissions** → **Create function**.
+3. Permissions: escolha **Use an existing role** → **`LabRole`** → **Create function**.
+   *(Em laboratório não é possível criar role nova. Numa conta própria, use "Create a new role with basic Lambda permissions".)*
 4. Em **Code source**, apague o conteúdo e cole o arquivo `lambda/close-expired-polls/index.js` do repositório → **Deploy**.
 5. **Configuration** → **Environment variables** → **Edit** → adicione:
    - `API_URL` = `http://IP-PUBLICO-DA-EC2:3000`
