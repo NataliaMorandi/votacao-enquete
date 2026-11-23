@@ -59,9 +59,10 @@ chmod +x /usr/local/bin/docker-compose
 [ -s /usr/local/bin/docker-compose ] || { echo "ERRO: docker-compose vazio"; exit 1; }
 
 mkdir -p /usr/local/lib/docker/cli-plugins
-# python3 lê todo o JSON (grep -m1 fecha o pipe e derruba o curl com SIGPIPE)
-BUILDX_TAG=$(curl -fsSL --retry 5 --retry-delay 2 https://api.github.com/repos/docker/buildx/releases/latest \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))')
+# Versão do buildx pelo redirect de "releases/latest" (evita rate limit da API do GitHub)
+BUILDX_TAG=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+  https://github.com/docker/buildx/releases/latest | sed 's|.*/tag/v||')
+[ -n "$BUILDX_TAG" ] || { echo "ERRO: nao foi possivel descobrir a versao do buildx"; exit 1; }
 curl -fsSL --retry 5 --retry-delay 2 \
   "https://github.com/docker/buildx/releases/download/v${BUILDX_TAG}/buildx-v${BUILDX_TAG}.linux-$COMPOSE_ARQ" \
   -o /usr/local/lib/docker/cli-plugins/docker-buildx
