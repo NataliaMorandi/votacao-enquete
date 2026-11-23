@@ -10,7 +10,8 @@
 # ------------------------------------------------------------------
 set -euo pipefail
 
-exec > >(tee -a /var/log/votacao-boot.log | logger -t votacao-boot) 2>&1
+# Log direto em arquivo (sem pipe: evita SIGPIPE/erro de escrita em curl)
+exec >> /var/log/votacao-boot.log 2>&1
 
 ARQ_ENV=/etc/votacao-bootstrap.env
 if [ ! -f "$ARQ_ENV" ]; then
@@ -51,14 +52,17 @@ case "$ARQ" in
   *) echo "arquitetura não suportada: $ARQ"; exit 1 ;;
 esac
 
-curl -SL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$COMPOSE_ARQ" \
+curl -fsSL --retry 5 --retry-delay 2 \
+  "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$COMPOSE_ARQ" \
   -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
+[ -s /usr/local/bin/docker-compose ] || { echo "ERRO: docker-compose vazio"; exit 1; }
 
 mkdir -p /usr/local/lib/docker/cli-plugins
-BUILDX_TAG=$(curl -fsSL https://api.github.com/repos/docker/buildx/releases/latest \
+BUILDX_TAG=$(curl -fsSL --retry 5 --retry-delay 2 https://api.github.com/repos/docker/buildx/releases/latest \
   | grep -m1 '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')
-curl -fSL "https://github.com/docker/buildx/releases/download/v${BUILDX_TAG}/buildx-v${BUILDX_TAG}.linux-$COMPOSE_ARQ" \
+curl -fsSL --retry 5 --retry-delay 2 \
+  "https://github.com/docker/buildx/releases/download/v${BUILDX_TAG}/buildx-v${BUILDX_TAG}.linux-$COMPOSE_ARQ" \
   -o /usr/local/lib/docker/cli-plugins/docker-buildx
 chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
 docker buildx version

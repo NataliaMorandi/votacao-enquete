@@ -4,7 +4,8 @@
 # Gerado pelo Terraform (templatefile) — NÃO editar na instância
 # ------------------------------------------------------------------
 set -e
-exec > >(tee /var/log/votacao-boot.log | logger -t votacao-boot) 2>&1
+# Log direto em arquivo (sem pipe)
+exec >> /var/log/votacao-boot.log 2>&1
 
 echo "==> [1/6] Instalando pacotes base"
 dnf update -y
@@ -30,15 +31,15 @@ case $ARQ in
   aarch64) COMPOSE_ARQ=aarch64 ;;
   *) echo "arquitetura nao suportada: $ARQ"; exit 1 ;;
 esac
-curl -SL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$COMPOSE_ARQ" \
+curl -fsSL --retry 5 --retry-delay 2 "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$COMPOSE_ARQ" \
   -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
 
 # buildx >= 0.17 é exigido pelo compose v2 para buildar imagens
 mkdir -p /usr/local/lib/docker/cli-plugins
-BUILDX_TAG=$(curl -fsSL https://api.github.com/repos/docker/buildx/releases/latest \
+BUILDX_TAG=$(curl -fsSL --retry 5 --retry-delay 2 https://api.github.com/repos/docker/buildx/releases/latest \
   | grep -m1 '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')
-curl -fSL "https://github.com/docker/buildx/releases/download/v$${BUILDX_TAG}/buildx-v$${BUILDX_TAG}.linux-$COMPOSE_ARQ" \
+curl -fsSL --retry 5 --retry-delay 2 "https://github.com/docker/buildx/releases/download/v$${BUILDX_TAG}/buildx-v$${BUILDX_TAG}.linux-$COMPOSE_ARQ" \
   -o /usr/local/lib/docker/cli-plugins/docker-buildx
 chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
 docker buildx version
