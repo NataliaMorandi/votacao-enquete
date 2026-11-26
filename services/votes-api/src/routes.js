@@ -11,6 +11,42 @@ const { votosAceitos, enquetesCriadas, enquetesEncerradas } = require('./metrics
 const router = express.Router();
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+/** "Onde vamos almoçar?" -> "onde-vamos-almocar" */
+function slugify(texto) {
+  const base = String(texto)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove acentos
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60)
+    .replace(/-+$/g, '');
+  return base || 'enquete';
+}
+
+/** Garante slug único acrescentando -2, -3, ... */
+async function slugUnico(client, base) {
+  let candidato = base;
+  for (let i = 2; i <= 50; i++) {
+    const { rowCount } = await client.query('SELECT 1 FROM enquetes WHERE slug = $1', [candidato]);
+    if (rowCount === 0) return candidato;
+    candidato = `${base.slice(0, 55)}-${i}`;
+  }
+  return `${base.slice(0, 45)}-${randomUUID().slice(0, 8)}`;
+}
+
+/** Aceita uuid OU slug e devolve a enquete */
+async function buscarEnquete(chave) {
+  const sql = UUID_RE.test(chave)
+    ? `SELECT id, slug, titulo, descricao, status, abertura, prazo, anonima, max_escolhas
+         FROM enquetes WHERE id = $1`
+    : `SELECT id, slug, titulo, descricao, status, abertura, prazo, anonima, max_escolhas
+         FROM enquetes WHERE slug = $1`;
+  const { rows } = await pool.query(sql, [chave]);
+  return rows[0] || null;
+}
 
 // -----------------------------------------------------------------
 // POST /enquetes — cria enquete
@@ -56,13 +92,27 @@ router.post('/enquetes', async (req, res, next) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { rows } = await client.query(
-      `INSERT INTO enquetes (titulo, descricao, prazo, criada_por, anonima, max_escolhas)
-       VALUES ($1, $2, now() + ($3 || ' minutes')::interval, $4, $5, $6)
-       RETURNING id, titulo, descricao, status, abertura, prazo, criada_por, anonima, max_escolhas`,
-      [titulo.trim(), descricao, String(minutos), criada_por, ehAnonima, maxEscolhas]
-    );
-    const enquete = rows[0];
+    const base = slugify(titulo);
+    let enquete = null;
+    for (let tentativa = 1; tentativa <= 4 && !enquete; tentativa++) {
+      const slug = tentativa === 1
+        ? await slugUnico(client, base)
+        : `${base.slice(0, 50)}-${randomUUID().slice(0, 6)}`;
+      try {
+        const { rows } = await client.query(
+          `INSERT INTO enquetes (titulo, slug, descricao, prazo, criada_por, anonima, max_escolhas)
+           VALUES ($1, $2, $3, now() + ($4 || ' minutes')::interval, $5, $6, $7)
+           RETURNING id, slug, titulo, descricao, status, abertura, prazo, criada_por, anonima, max_escolhas`,
+          [titulo.trim(), slug, descricao, String(minutos), criada_por, ehAnonima, maxEscolhas]
+        );
+        enquete = rows[0];
+      } catch (err) {
+        // corrida de slug: tenta de novo com sufixo aleatório
+        if (err.code === '23505' && String(err.constraint || '').includes('slug')) continue;
+        throw err;
+      }
+    }
+    if (!enquete) throw new Error('nao_foi_possivel_gerar_slug');
 
     const opcoesCriadas = [];
     for (let i = 0; i < opcoes.length; i++) {
@@ -101,7 +151,7 @@ router.post('/enquetes', async (req, res, next) => {
 router.get('/enquetes', async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT e.id, e.titulo, e.descricao, e.status, e.abertura, e.prazo,
+      `SELECT e.id, e.slug, e.titulo, e.descricao, e.status, e.abertura, e.prazo,
               e.anonima, e.max_escolhas,
               (SELECT count(*) FROM votos v WHERE v.enquete_id = e.id)::int AS total_votos
          FROM enquetes e
@@ -118,11 +168,13 @@ router.get('/enquetes', async (req, res, next) => {
 // POST /enquetes/:id/votos — registra 1 ou 2 votos e publica no SNS
 //   body: { votante_id: uuid, nome?: string, opcao_ids: [uuid, ...] }
 // -----------------------------------------------------------------
-router.post('/enquetes/:id/votos', async (req, res, next) => {
-  const { id } = req.params;
+router.post('/enquetes/:chave/votos', async (req, res, next) => {
+  const { chave } = req.params;
   const { votante_id, nome = null, opcao_ids } = req.body || {};
 
-  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'id_invalido' });
+  if (!UUID_RE.test(chave) && !SLUG_RE.test(chave)) {
+    return res.status(400).json({ error: 'id_invalido' });
+  }
   if (!UUID_RE.test(String(votante_id || ''))) {
     return res.status(400).json({ error: 'votante_id_invalido' });
   }
@@ -136,13 +188,11 @@ router.post('/enquetes/:id/votos', async (req, res, next) => {
   }
 
   try {
-    const { rows } = await pool.query(
-      'SELECT id, status, prazo, anonima, max_escolhas FROM enquetes WHERE id = $1',
-      [id]
-    );
-    if (rows.length === 0) return res.status(404).json({ error: 'enquete_nao_encontrada' });
+    const encontrada = await buscarEnquete(chave);
+    if (!encontrada) return res.status(404).json({ error: 'enquete_nao_encontrada' });
 
-    const enquete = rows[0];
+    const enquete = encontrada;
+    const id = enquete.id;
     if (enquete.status !== 'aberta') return res.status(409).json({ error: 'enquete_fechada' });
     if (new Date(enquete.prazo) <= new Date()) {
       return res.status(409).json({ error: 'enquete_expirada' });
@@ -243,6 +293,7 @@ router.post('/enquetes/:id/votos', async (req, res, next) => {
 
     logger.info('voto_registrado', {
       enquete_id: id,
+      enquete_slug: enquete.slug,
       total_opcoes: votosCriados.length,
       anonima: enquete.anonima,
       votante_nome: nomeLimpo,
@@ -278,18 +329,17 @@ async function contarNoBanco(enqueteId) {
   return rows;
 }
 
-router.get('/enquetes/:id/resultado', async (req, res, next) => {
-  const { id } = req.params;
-  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'id_invalido' });
+router.get('/enquetes/:chave/resultado', async (req, res, next) => {
+  const { chave } = req.params;
+  if (!UUID_RE.test(chave) && !SLUG_RE.test(chave)) {
+    return res.status(400).json({ error: 'id_invalido' });
+  }
 
   try {
-    const { rows } = await pool.query(
-      `SELECT id, titulo, descricao, status, abertura, prazo, anonima, max_escolhas
-         FROM enquetes WHERE id = $1`,
-      [id]
-    );
-    if (rows.length === 0) return res.status(404).json({ error: 'enquete_nao_encontrada' });
-    const enquete = rows[0];
+    const encontrada = await buscarEnquete(chave);
+    if (!encontrada) return res.status(404).json({ error: 'enquete_nao_encontrada' });
+    const enquete = encontrada;
+    const id = enquete.id;
 
     const opcoes = await pool.query(
       'SELECT id, rotulo, ordem FROM opcoes WHERE enquete_id = $1 ORDER BY ordem',
@@ -346,6 +396,7 @@ router.get('/enquetes/:id/resultado', async (req, res, next) => {
 
     return res.json({
       enquete_id: enquete.id,
+      slug: enquete.slug,
       titulo: enquete.titulo,
       descricao: enquete.descricao,
       status: enquete.status,

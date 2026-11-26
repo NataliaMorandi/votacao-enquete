@@ -9,6 +9,8 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS enquetes (
     id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     titulo        text        NOT NULL,
+    -- slug legível para a URL: /e/onde-vamos-almocar
+    slug          text        NOT NULL UNIQUE,
     descricao     text,
     status        text        NOT NULL DEFAULT 'aberta'
                               CHECK (status IN ('aberta', 'fechada')),
@@ -64,3 +66,7 @@ CREATE INDEX IF NOT EXISTS idx_votos_opcao       ON votos (opcao_id);
 CREATE INDEX IF NOT EXISTS idx_votos_votante     ON votos (enquete_id, votante_id);
 CREATE INDEX IF NOT EXISTS idx_enquetes_status   ON enquetes (status, prazo);
 CREATE INDEX IF NOT EXISTS idx_opcoes_enquete    ON opcoes (enquete_id, ordem);
+
+-- formato do slug: minúsculas, números e hífen
+ALTER TABLE enquetes
+  ADD CONSTRAINT slug_formato CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$');

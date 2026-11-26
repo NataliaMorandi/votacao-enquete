@@ -11,6 +11,7 @@
  * Não coletamos CPF nem IP; o id serve só para limitar votos repetidos.
  * ------------------------------------------------------------------ */
 
+// pode ser slug (onde-vamos-almocar) ou uuid — a API aceita os dois
 const enqueteId = decodeURIComponent(window.location.pathname.split('/e/')[1] || '');
 
 const el = (id) => document.getElementById(id);

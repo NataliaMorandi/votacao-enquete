@@ -93,7 +93,7 @@ form.addEventListener('submit', async (event) => {
     }
 
     mostrarMsg('Enquete criada! Abrindo...', 'ok');
-    window.location.href = `/e/${dados.id}`;
+    window.location.href = `/e/${dados.slug || dados.id}`;
   } catch (err) {
     mostrarMsg('Falha de rede: ' + err.message, 'erro');
   } finally {
@@ -147,7 +147,7 @@ async function carregarLista() {
         const modo = e.anonima ? 'anônima' : 'com nome';
         const escolhas = e.max_escolhas === 2 ? '2 opções' : '1 opção';
         return `
-          <a class="enquete-item" href="/e/${e.id}">
+          <a class="enquete-item" href="/e/${e.slug || e.id}">
             <div class="titulo">${escapar(e.titulo)}</div>
             <div class="meta">
               <span class="badge ${fechada ? 'fechada' : 'aberta'}">${fechada ? 'encerrada' : 'aberta'}</span>

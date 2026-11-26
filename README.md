@@ -104,8 +104,8 @@ flowchart TB
 | GET | `/metrics` | Métricas Prometheus |
 | POST | `/enquetes` | Cria enquete (título, descrição, opções, duração, **anônima?**, **máx. de escolhas: 1 ou 2**) |
 | GET | `/enquetes` | Lista enquetes |
-| POST | `/enquetes/{id}/votos` | Registra voto (`votante_id`, `opcao_ids[]`, `nome` se identificada) |
-| GET | `/enquetes/{id}/resultado` | Resultado com percentuais |
+| POST | `/enquetes/{id-ou-slug}/votos` | Registra voto (`votante_id`, `opcao_ids[]`, `nome` se identificada) |
+| GET | `/enquetes/{id-ou-slug}/resultado` | Resultado com percentuais |
 | POST | `/internal/close-expired` | Chamado pela Lambda (token no header) |
 
 <details>
@@ -143,6 +143,20 @@ curl http://IP:3000/enquetes/{ID}/resultado
 </details>
 
 ---
+
+## 3.0. URL legível (slug)
+
+O título gera automaticamente um **slug**, usado na URL pública:
+
+```
+"Onde vamos almoçar?"  ->  slug: "onde-vamos-almocar"
+http://IP:3000/e/onde-vamos-almocar
+```
+
+- Acentuação e símbolos são removidos (`Ação, coração e pão` → `acao-coracao-e-pao`).
+- Títulos repetidos viram `onde-vamos-almocar-2`, `onde-vamos-almocar-3`, etc.
+- O **UUID continua existindo internamente** (chave primária, FK dos votos); a API aceita **UUID ou slug** nas rotas de voto/resultado, então links antigos seguem funcionando.
+- Depois do HTTPS com Caddy, a URL fica `https://seu-dominio/e/onde-vamos-almocar` (sem `:3000`).
 
 ## 3.1. Modelo de votação (anônima × identificada, 1 ou 2 escolhas)
 

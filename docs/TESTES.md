@@ -42,11 +42,17 @@ ENQ=$(curl -s -X POST http://$IP:3000/enquetes \
 echo "$ENQ" | python3 -m json.tool
 
 ID=$(echo "$ENQ"   | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
+SLUG=$(echo "$ENQ" | python3 -c 'import json,sys;print(json.load(sys.stdin)["slug"])')
+echo "slug da enquete: $SLUG  ->  /e/$SLUG"
 OPT_A=$(echo "$ENQ"| python3 -c 'import json,sys;print(json.load(sys.stdin)["opcoes"][0]["id"])')
 echo "enquete=$ID opcaoA=$OPT_A"
 ```
 
-Esperado: HTTP 201, `status: "aberta"`, `prazo` = agora + 30 min.
+Esperado: HTTP 201, `status: "aberta"`, `prazo` = agora + 30 min,
+`slug: "onde-vamos-almocar"`. O link público é `http://$IP:3000/e/$SLUG`.
+
+Todas as chamadas abaixo usam `$ID`, mas você pode trocar por `$SLUG` — a API aceita os dois
+(isso é útil para testar a URL bonita direto).
 
 ## 3. Votar
 
