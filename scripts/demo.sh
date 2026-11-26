@@ -16,7 +16,9 @@ ENQUETE=$(curl -sS -X POST "$API/enquetes" \
         "titulo": "Onde vamos almoçar?",
         "descricao": "Enquete de demonstração do trabalho",
         "duracao_minutos": 30,
-        "opcoes": ["Opção A - Pizza", "Opção B - Japonês", "Opção C - Vegetariano"]
+        "opcoes": ["Opção A - Pizza", "Opção B - Japonês", "Opção C - Vegetariano"],
+        "anonima": true,
+        "max_escolhas": 1
       }')
 
 if echo "$ENQUETE" | grep -q '"error"'; then
@@ -42,10 +44,10 @@ OPCOES=("$OPT1" "$OPT2" "$OPT3")
 i=0
 while [ "$i" -lt "$N" ]; do
   OPCAO="${OPCOES[$((i % 3))]}"
-  CPF=$(printf '1234567%04d' "$i")
+  VOTANTE=$(python3 -c 'import uuid;print(uuid.uuid4())')
   CODE=$(curl -sS -o /dev/null -w "%{http_code}" -X POST "$API/enquetes/$ID/votos" \
     -H 'Content-Type: application/json' \
-    -d "{\"cpf\":\"$CPF\",\"opcao_id\":\"$OPCAO\"}")
+    -d "{\"votante_id\":\"$VOTANTE\",\"opcao_ids\":[\"$OPCAO\"]}")
   printf "%s " "$CODE"
   i=$((i + 1))
 done

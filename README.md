@@ -102,9 +102,9 @@ flowchart TB
 |---|---|---|
 | GET | `/health` · `/health/ready` | Health checks (Docker) |
 | GET | `/metrics` | Métricas Prometheus |
-| POST | `/enquetes` | Cria enquete (título, descrição, opções, duração) |
+| POST | `/enquetes` | Cria enquete (título, descrição, opções, duração, **anônima?**, **máx. de escolhas: 1 ou 2**) |
 | GET | `/enquetes` | Lista enquetes |
-| POST | `/enquetes/{id}/votos` | Registra voto (`cpf`, `opcao_id`) |
+| POST | `/enquetes/{id}/votos` | Registra voto (`votante_id`, `opcao_ids[]`, `nome` se identificada) |
 | GET | `/enquetes/{id}/resultado` | Resultado com percentuais |
 | POST | `/internal/close-expired` | Chamado pela Lambda (token no header) |
 
@@ -112,17 +112,30 @@ flowchart TB
 <summary>Exemplos de requisição</summary>
 
 ```bash
-# criar enquete (30 minutos de duração)
+# criar enquete anônima, voto único
 curl -X POST http://IP:3000/enquetes -H 'Content-Type: application/json' -d '{
   "titulo": "Onde vamos almoçar?",
   "descricao": "Escolha o restaurante de sexta",
   "duracao_minutos": 30,
-  "opcoes": ["Opção A - Pizza", "Opção B - Japonês", "Opção C - Vegetariano"]
+  "opcoes": ["Opção A - Pizza", "Opção B - Japonês", "Opção C - Vegetariano"],
+  "anonima": true,
+  "max_escolhas": 1
 }'
 
-# votar
+# criar enquete identificada, podendo votar em 2 opções
+curl -X POST http://IP:3000/enquetes -H 'Content-Type: application/json' -d '{
+  "titulo": "Quais temas para o seminário?",
+  "duracao_minutos": 1440,
+  "opcoes": ["Kubernetes", "Mensageria", "Observabilidade", "IaC"],
+  "anonima": false,
+  "max_escolhas": 2
+}'
+
+# votar (votante_id = uuid do navegador; sem CPF)
 curl -X POST http://IP:3000/enquetes/{ID}/votos -H 'Content-Type: application/json' \
-  -d '{"cpf":"12345678900","opcao_id":"{OPCAO_ID}"}'
+  -d '{"votante_id":"3f2b8c1e-9a4d-4e8b-9c7a-1b2c3d4e5f60",
+       "nome":"Maria Silva",
+       "opcao_ids":["{OPCAO_A}"]}'
 
 # resultado
 curl http://IP:3000/enquetes/{ID}/resultado
@@ -130,6 +143,19 @@ curl http://IP:3000/enquetes/{ID}/resultado
 </details>
 
 ---
+
+## 3.1. Modelo de votação (anônima × identificada, 1 ou 2 escolhas)
+
+| Campo da enquete | Valores | Efeito |
+|---|---|---|
+| `anonima` | `true` (padrão) / `false` | `true`: a tela não pede identificação. `false`: exige `nome` e mostra a lista "quem já votou" |
+| `max_escolhas` | `1` (padrão) / `2` | quantas opções cada pessoa pode marcar |
+
+**Sem CPF.** A deduplicação usa um `votante_id` (uuid aleatório gerado no navegador e
+guardado em `localStorage`), garantido por `UNIQUE (enquete_id, votante_id, opcao_id)`.
+O limite de escolhas é validado em transação com `pg_advisory_xact_lock`, impedindo
+duplo clique/corrida. Trade-off documentado: limpar o navegador gera novo id — em
+enquete anônima não há como identificar a pessoa por definição.
 
 ## 4. Alta disponibilidade
 

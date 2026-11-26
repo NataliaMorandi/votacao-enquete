@@ -13,7 +13,10 @@ const router = express.Router();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // -----------------------------------------------------------------
-// POST /enquetes — cria enquete (título, descrição, opções, prazo)
+// POST /enquetes — cria enquete
+//   body: { titulo, descricao?, opcoes[], duracao_minutos?, criada_por?,
+//           anonima?: boolean (default true),
+//           max_escolhas?: 1|2 (default 1) }
 // -----------------------------------------------------------------
 router.post('/enquetes', async (req, res, next) => {
   const {
@@ -22,6 +25,8 @@ router.post('/enquetes', async (req, res, next) => {
     opcoes,
     duracao_minutos = 60,
     criada_por = null,
+    anonima = true,
+    max_escolhas = 1,
   } = req.body || {};
 
   if (typeof titulo !== 'string' || titulo.trim().length < 3) {
@@ -42,15 +47,20 @@ router.post('/enquetes', async (req, res, next) => {
   if (!Number.isInteger(minutos) || minutos < 1 || minutos > 10_080) {
     return res.status(400).json({ error: 'duracao_invalida', detalhe: 'entre 1 e 10080 minutos' });
   }
+  const maxEscolhas = Number(max_escolhas);
+  if (![1, 2].includes(maxEscolhas)) {
+    return res.status(400).json({ error: 'max_escolhas_invalido', detalhe: 'use 1 ou 2' });
+  }
+  const ehAnonima = anonima === undefined ? true : Boolean(anonima);
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
-      `INSERT INTO enquetes (titulo, descricao, prazo, criada_por)
-       VALUES ($1, $2, now() + ($3 || ' minutes')::interval, $4)
-       RETURNING id, titulo, descricao, status, abertura, prazo, criada_por`,
-      [titulo.trim(), descricao, String(minutos), criada_por]
+      `INSERT INTO enquetes (titulo, descricao, prazo, criada_por, anonima, max_escolhas)
+       VALUES ($1, $2, now() + ($3 || ' minutes')::interval, $4, $5, $6)
+       RETURNING id, titulo, descricao, status, abertura, prazo, criada_por, anonima, max_escolhas`,
+      [titulo.trim(), descricao, String(minutos), criada_por, ehAnonima, maxEscolhas]
     );
     const enquete = rows[0];
 
@@ -71,6 +81,8 @@ router.post('/enquetes', async (req, res, next) => {
       enquete_id: enquete.id,
       total_opcoes: opcoesCriadas.length,
       duracao_minutos: minutos,
+      anonima: enquete.anonima,
+      max_escolhas: enquete.max_escolhas,
       prazo: enquete.prazo,
     });
 
@@ -90,6 +102,7 @@ router.get('/enquetes', async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT e.id, e.titulo, e.descricao, e.status, e.abertura, e.prazo,
+              e.anonima, e.max_escolhas,
               (SELECT count(*) FROM votos v WHERE v.enquete_id = e.id)::int AS total_votos
          FROM enquetes e
         ORDER BY e.abertura DESC
@@ -102,22 +115,29 @@ router.get('/enquetes', async (req, res, next) => {
 });
 
 // -----------------------------------------------------------------
-// POST /enquetes/:id/votos — registra voto e publica evento no SNS
+// POST /enquetes/:id/votos — registra 1 ou 2 votos e publica no SNS
+//   body: { votante_id: uuid, nome?: string, opcao_ids: [uuid, ...] }
 // -----------------------------------------------------------------
 router.post('/enquetes/:id/votos', async (req, res, next) => {
   const { id } = req.params;
-  const { cpf, opcao_id } = req.body || {};
+  const { votante_id, nome = null, opcao_ids } = req.body || {};
 
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'id_invalido' });
-  const cpfLimpo = String(cpf || '').replace(/\D/g, '');
-  if (cpfLimpo.length !== 11) return res.status(400).json({ error: 'cpf_invalido' });
-  if (!UUID_RE.test(String(opcao_id || ''))) {
-    return res.status(400).json({ error: 'opcao_id_invalido' });
+  if (!UUID_RE.test(String(votante_id || ''))) {
+    return res.status(400).json({ error: 'votante_id_invalido' });
+  }
+
+  const lista = Array.isArray(opcao_ids) ? [...new Set(opcao_ids.map(String))] : [];
+  if (lista.length === 0) {
+    return res.status(400).json({ error: 'opcao_ids_invalido', detalhe: 'envie um array com as opções' });
+  }
+  if (lista.some((o) => !UUID_RE.test(o))) {
+    return res.status(400).json({ error: 'opcao_ids_invalido', detalhe: 'uuid inválido' });
   }
 
   try {
     const { rows } = await pool.query(
-      'SELECT id, status, prazo FROM enquetes WHERE id = $1',
+      'SELECT id, status, prazo, anonima, max_escolhas FROM enquetes WHERE id = $1',
       [id]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'enquete_nao_encontrada' });
@@ -127,60 +147,123 @@ router.post('/enquetes/:id/votos', async (req, res, next) => {
     if (new Date(enquete.prazo) <= new Date()) {
       return res.status(409).json({ error: 'enquete_expirada' });
     }
-
-    const opcao = await pool.query(
-      'SELECT id, rotulo FROM opcoes WHERE id = $1 AND enquete_id = $2',
-      [opcao_id, id]
-    );
-    if (opcao.rows.length === 0) {
-      return res.status(400).json({ error: 'opcao_nao_pertence_a_enquete' });
+    if (lista.length > enquete.max_escolhas) {
+      return res.status(400).json({
+        error: 'limite_de_escolhas_excedido',
+        detalhe: `esta enquete permite até ${enquete.max_escolhas} opção(ões)`,
+      });
     }
 
-    // ON CONFLICT garante 1 CPF por enquete sem risco de corrida
-    const votoId = randomUUID();
-    const ins = await pool.query(
-      `INSERT INTO votos (id, enquete_id, opcao_id, cpf)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (enquete_id, cpf) DO NOTHING
-       RETURNING id, criado_em`,
-      [votoId, id, opcao_id, cpfLimpo]
+    let nomeLimpo = null;
+    if (!enquete.anonima) {
+      if (typeof nome !== 'string' || nome.trim().length < 2 || nome.trim().length > 80) {
+        return res.status(400).json({ error: 'nome_obrigatorio', detalhe: 'informe seu nome (2 a 80 caracteres)' });
+      }
+      nomeLimpo = nome.trim();
+    }
+
+    // Todas as opções precisam pertencer a esta enquete
+    const opcoesValidas = await pool.query(
+      'SELECT id, rotulo FROM opcoes WHERE enquete_id = $1 AND id = ANY($2::uuid[])',
+      [id, lista]
     );
-    if (ins.rows.length === 0) return res.status(409).json({ error: 'cpf_ja_votou' });
+    if (opcoesValidas.rows.length !== lista.length) {
+      return res.status(400).json({ error: 'opcao_nao_pertence_a_enquete' });
+    }
+    const rotuloPorId = new Map(opcoesValidas.rows.map((o) => [o.id, o.rotulo]));
 
-    votosAceitos.inc();
-
-    // Publica o evento (o CPF NÃO vai no evento — minimização de dados)
-    const evento = {
-      voto_id: votoId,
-      enquete_id: id,
-      opcao_id,
-      opcao_rotulo: opcao.rows[0].rotulo,
-      registrado_em: ins.rows[0].criado_em,
-    };
-    let aviso = null;
+    const client = await pool.connect();
+    let votosCriados = [];
     try {
-      await publish('voto.registrado', evento, { enquete_id: id, opcao_id });
+      await client.query('BEGIN');
+
+      // Serializa votos do MESMO votante nesta enquete (evita corrida de duplo clique)
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${id}:${votante_id}`]);
+
+      const ja = await client.query(
+        'SELECT count(DISTINCT opcao_id)::int AS n FROM votos WHERE enquete_id = $1 AND votante_id = $2',
+        [id, votante_id]
+      );
+      if (ja.rows[0].n + lista.length > enquete.max_escolhas) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'limite_de_escolhas_excedido',
+          detalhe: `você já registrou ${ja.rows[0].n} voto(s); esta enquete permite ${enquete.max_escolhas}`,
+        });
+      }
+
+      const valores = [];
+      const placeholders = lista.map((opcaoId, i) => {
+        const votoId = randomUUID();
+        valores.push(votoId, id, opcaoId, votante_id, nomeLimpo);
+        votosCriados.push({ voto_id: votoId, opcao_id: opcaoId });
+        const b = i * 5;
+        return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5})`;
+      });
+
+      await client.query(
+        `INSERT INTO votos (id, enquete_id, opcao_id, votante_id, votante_nome)
+         VALUES ${placeholders.join(', ')}`,
+        valores
+      );
+
+      await client.query('COMMIT');
     } catch (err) {
-      // O voto já está persistido: a falha do SNS não invalida o voto.
-      logger.error('sns_publish_falhou', { voto_id: votoId, error: err.message });
-      aviso = 'voto_salvo_mas_evento_nao_publicado';
+      await client.query('ROLLBACK').catch(() => {});
+      if (err.code === '23505') {
+        return res.status(409).json({ error: 'voto_duplicado', detalhe: 'você já votou nesta opção' });
+      }
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    votosAceitos.inc(votosCriados.length);
+
+    // Publica um evento por opção votada (o worker incrementa cada contador)
+    let aviso = null;
+    for (const v of votosCriados) {
+      try {
+        await publish(
+          'voto.registrado',
+          {
+            voto_id: v.voto_id,
+            enquete_id: id,
+            opcao_id: v.opcao_id,
+            opcao_rotulo: rotuloPorId.get(v.opcao_id),
+            anonima: enquete.anonima,
+          },
+          { enquete_id: id, opcao_id: v.opcao_id }
+        );
+      } catch (err) {
+        logger.error('sns_publish_falhou', { voto_id: v.voto_id, error: err.message });
+        aviso = 'voto_salvo_mas_evento_nao_publicado';
+      }
     }
 
     logger.info('voto_registrado', {
-      voto_id: votoId,
       enquete_id: id,
-      opcao_id,
-      opcao_rotulo: opcao.rows[0].rotulo,
+      total_opcoes: votosCriados.length,
+      anonima: enquete.anonima,
+      votante_nome: nomeLimpo,
     });
 
-    return res.status(201).json({ ...evento, ...(aviso ? { aviso } : {}) });
+    return res.status(201).json({
+      enquete_id: id,
+      votos: votosCriados.map((v) => ({
+        voto_id: v.voto_id,
+        opcao_id: v.opcao_id,
+        opcao_rotulo: rotuloPorId.get(v.opcao_id),
+      })),
+      ...(aviso ? { aviso } : {}),
+    });
   } catch (err) {
     return next(err);
   }
 });
 
 // -----------------------------------------------------------------
-// GET /enquetes/:id/resultado — contadores do Redis (fallback Postgres)
+// GET /enquetes/:id/resultado
 // -----------------------------------------------------------------
 async function contarNoBanco(enqueteId) {
   const { rows } = await pool.query(
@@ -201,7 +284,8 @@ router.get('/enquetes/:id/resultado', async (req, res, next) => {
 
   try {
     const { rows } = await pool.query(
-      'SELECT id, titulo, descricao, status, abertura, prazo FROM enquetes WHERE id = $1',
+      `SELECT id, titulo, descricao, status, abertura, prazo, anonima, max_escolhas
+         FROM enquetes WHERE id = $1`,
       [id]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'enquete_nao_encontrada' });
@@ -220,7 +304,6 @@ router.get('/enquetes/:id/resultado', async (req, res, next) => {
       const total = valores.reduce((acc, v) => acc + Number(v || 0), 0);
 
       if (total === 0) {
-        // Redis vazio (cold start / restart) → reconta do Postgres e repopula
         fonte = 'postgres';
         contagens = await contarNoBanco(id);
       } else {
@@ -245,16 +328,35 @@ router.get('/enquetes/:id/resultado', async (req, res, next) => {
       percentual: totalVotos === 0 ? 0 : Number(((c.votos / totalVotos) * 100).toFixed(2)),
     }));
 
+    // Em enquetes identificadas, mostra quem já votou (e em quê)
+    let votantes = [];
+    if (!enquete.anonima) {
+      const { rows: linhas } = await pool.query(
+        `SELECT v.votante_nome AS nome,
+                array_agg(DISTINCT o.rotulo) AS opcoes
+           FROM votos v
+           JOIN opcoes o ON o.id = v.opcao_id
+          WHERE v.enquete_id = $1 AND v.votante_nome IS NOT NULL
+          GROUP BY v.votante_nome
+          ORDER BY v.votante_nome`,
+        [id]
+      );
+      votantes = linhas.map((l) => ({ nome: l.nome, opcoes: l.opcoes }));
+    }
+
     return res.json({
       enquete_id: enquete.id,
       titulo: enquete.titulo,
       descricao: enquete.descricao,
       status: enquete.status,
+      anonima: enquete.anonima,
+      max_escolhas: enquete.max_escolhas,
       abertura: enquete.abertura,
       prazo: enquete.prazo,
       total_votos: totalVotos,
       fonte_contagem: fonte,
       resultado,
+      votantes,
     });
   } catch (err) {
     return next(err);
@@ -286,7 +388,7 @@ router.post('/internal/close-expired', async (req, res, next) => {
           RETURNING id, titulo`,
         [id]
       );
-      if (upd.rows.length === 0) continue; // outra execução já fechou
+      if (upd.rows.length === 0) continue;
 
       const contagens = await contarNoBanco(id);
       const total = contagens.reduce((acc, c) => acc + Number(c.votos), 0);
@@ -307,11 +409,7 @@ router.post('/internal/close-expired', async (req, res, next) => {
           { enquete_id: id }
         );
       } catch (err) {
-        // O encerramento já está persistido; a falha do SNS não o desfaz.
-        logger.error('sns_publish_falhou_enquete_encerrada', {
-          enquete_id: id,
-          error: err.message,
-        });
+        logger.error('sns_publish_falhou_enquete_encerrada', { enquete_id: id, error: err.message });
       }
 
       enquetesEncerradas.inc();

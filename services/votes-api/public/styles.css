@@ -170,3 +170,26 @@ input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px r
   header h1 { font-size: 1.3rem; }
   main { padding: 16px 12px 48px; }
 }
+
+/* --- checkboxes do formulário de criação ------------------------- */
+label.check {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: #fbfcfd;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: .92rem;
+  cursor: pointer;
+}
+label.check input { width: auto; margin-top: 3px; accent-color: var(--accent); }
+label.check strong { display: block; font-weight: 600; }
+label.check small { display: block; color: var(--muted); font-size: .82rem; margin-top: 2px; }
+label.check:has(input:checked) { border-color: var(--accent); background: #f2fbf9; }
+
+/* --- rodapé das opções já votadas ------------------------------- */
+.opcao-voto small { color: var(--muted); }
+.opcao-voto input:disabled { opacity: .6; }

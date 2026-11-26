@@ -1,28 +1,72 @@
 'use strict';
 
 /* ------------------------------------------------------------------
- * Página da enquete: votar + resultado em tempo real
+ * Página da enquete
+ * - enquete anônima  -> não pede nome
+ * - enquete com nome -> exige nome
+ * - max_escolhas 1   -> radio (uma opção)
+ * - max_escolhas 2   -> checkbox (até duas opções)
+ *
+ * Identificação do votante: uuid aleatório guardado no localStorage.
+ * Não coletamos CPF nem IP; o id serve só para limitar votos repetidos.
  * ------------------------------------------------------------------ */
 
 const enqueteId = decodeURIComponent(window.location.pathname.split('/e/')[1] || '');
-const elTitulo = document.getElementById('titulo');
-const elDescricao = document.getElementById('descricao');
-const elStatus = document.getElementById('status');
-const elPrazo = document.getElementById('prazo');
-const elOpcoes = document.getElementById('opcoes');
-const elResultado = document.getElementById('resultado');
-const elTotal = document.getElementById('total');
-const elTotalLabel = document.getElementById('total-label');
-const elFonte = document.getElementById('fonte');
-const form = document.getElementById('form-voto');
-const cpfInput = document.getElementById('cpf');
-const msg = document.getElementById('msg');
-const cardVoto = document.getElementById('card-voto');
+
+const el = (id) => document.getElementById(id);
+const elTitulo = el('titulo');
+const elDescricao = el('descricao');
+const elStatus = el('status');
+const elModo = el('modo');
+const elPrazo = el('prazo');
+const elOpcoes = el('opcoes');
+const elResultado = el('resultado');
+const elTotal = el('total');
+const elTotalLabel = el('total-label');
+const elFonte = el('fonte');
+const elVotantes = el('votantes');
+const elCardVotantes = el('card-votantes');
+const form = el('form-voto');
+const cardVoto = el('card-voto');
+const campoNome = el('campo-nome');
+const inputNome = el('nome');
+const msg = el('msg');
+const btnVotar = el('btn-votar');
+const avisoPrivacidade = el('aviso-privacidade');
 
 let enquete = null;
-let opcaoEscolhida = null;
-let jaVotou = false;
+let montouOpcoes = false;
+let votosAnteriores = [];
 
+// --- identidade anônima do navegador -----------------------------
+function votanteId() {
+  let id = localStorage.getItem('votante_id');
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem('votante_id', id);
+  }
+  return id;
+}
+
+function chaveVotos() {
+  return `votos_${enqueteId}`;
+}
+
+function lerVotosAnteriores() {
+  try {
+    return JSON.parse(localStorage.getItem(chaveVotos()) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function salvarVotos(opcaoIds) {
+  const atuais = new Set(lerVotosAnteriores());
+  opcaoIds.forEach((o) => atuais.add(o));
+  localStorage.setItem(chaveVotos(), JSON.stringify([...atuais]));
+}
+
+// --- utilidades ---------------------------------------------------
 function escapar(texto) {
   const div = document.createElement('div');
   div.textContent = texto == null ? '' : String(texto);
@@ -48,6 +92,7 @@ function estaAberta() {
   return enquete && enquete.status === 'aberta' && new Date(enquete.prazo) > new Date();
 }
 
+// --- renderização -------------------------------------------------
 function renderCabecalho() {
   document.title = enquete.titulo + ' · Enquete';
   elTitulo.textContent = enquete.titulo;
@@ -58,32 +103,69 @@ function renderCabecalho() {
   elStatus.textContent = aberta ? 'aberta' : 'encerrada';
   elStatus.className = 'badge ' + (aberta ? 'aberta' : 'fechada');
   elPrazo.textContent = aberta ? tempoRestante(enquete.prazo) : 'Enquete encerrada';
+
+  elModo.textContent =
+    (enquete.anonima ? 'anônima' : 'com nome') +
+    ' · ' +
+    (enquete.max_escolhas === 2 ? 'até 2 opções' : '1 opção');
+  elModo.className = 'badge fechada';
+
+  avisoPrivacidade.textContent = enquete.anonima
+    ? 'Enquete anônima: nenhum dado pessoal é solicitado.'
+    : 'Enquete identificada: seu nome aparecerá na lista de votantes.';
+
+  campoNome.style.display = enquete.anonima ? 'none' : '';
+  elTituloVoto();
+}
+
+function elTituloVoto() {
+  el('titulo-voto').textContent =
+    enquete.max_escolhas === 2 ? 'Seus votos (marque até 2)' : 'Seu voto';
 }
 
 function renderOpcoes() {
   if (!enquete.resultado) return;
+  if (montouOpcoes) return;
 
-  // Não recria os radios enquanto o usuário está votando
-  if (!elOpcoes.dataset.pronto) {
-    elOpcoes.innerHTML = enquete.resultado
-      .map(
-        (r) => `
-        <label class="opcao-voto" data-id="${r.opcao_id}">
-          <input type="radio" name="opcao" value="${r.opcao_id}">
-          <span>${escapar(r.rotulo)}</span>
-        </label>`
-      )
-      .join('');
+  const tipo = enquete.max_escolhas === 2 ? 'checkbox' : 'radio';
+  votosAnteriores = lerVotosAnteriores();
 
-    elOpcoes.querySelectorAll('input[type="radio"]').forEach((input) => {
-      input.addEventListener('change', () => {
-        opcaoEscolhida = input.value;
+  elOpcoes.innerHTML = enquete.resultado
+    .map((r) => {
+      const jaVotou = votosAnteriores.includes(r.opcao_id);
+      return `
+        <label class="opcao-voto ${jaVotou ? 'selecionada' : ''}" data-id="${r.opcao_id}">
+          <input type="${tipo}" name="opcao" value="${r.opcao_id}"
+                 ${jaVotou ? 'checked disabled' : ''}>
+          <span>${escapar(r.rotulo)}${jaVotou ? ' <small>(seu voto)</small>' : ''}</span>
+        </label>`;
+    })
+    .join('');
+
+  elOpcoes.querySelectorAll('input[type="radio"], input[type="checkbox"]').forEach((input) => {
+    input.addEventListener('change', () => {
+      if (tipo === 'radio') {
         elOpcoes.querySelectorAll('.opcao-voto').forEach((l) => l.classList.remove('selecionada'));
         input.closest('.opcao-voto').classList.add('selecionada');
-      });
+        return;
+      }
+
+      // checkboxes: no máximo 2 marcados, contando os já votados
+      const marcados = selecionados();
+      if (marcados.length + votosAnteriores.length > enquete.max_escolhas) {
+        input.checked = false;
+        mostrarMsg(`Você pode marcar até ${enquete.max_escolhas} opção(ões).`, 'erro');
+        return;
+      }
+      input.closest('.opcao-voto').classList.toggle('selecionada', input.checked);
     });
-    elOpcoes.dataset.pronto = '1';
-  }
+  });
+
+  montouOpcoes = true;
+}
+
+function selecionados() {
+  return [...elOpcoes.querySelectorAll('input:checked:not([disabled])')].map((i) => i.value);
 }
 
 function renderResultado() {
@@ -108,6 +190,38 @@ function renderResultado() {
     .join('');
 }
 
+function renderVotantes() {
+  if (enquete.anonima || !enquete.votantes || enquete.votantes.length === 0) {
+    elCardVotantes.style.display = 'none';
+    return;
+  }
+  elCardVotantes.style.display = '';
+  elVotantes.innerHTML = enquete.votantes
+    .map(
+      (v) => `
+      <div class="resultado-item">
+        <div class="linha">
+          <strong>${escapar(v.nome)}</strong>
+          <span class="pct">${escapar((v.opcoes || []).join(', '))}</span>
+        </div>
+      </div>`
+    )
+    .join('');
+}
+
+function atualizarFormulario() {
+  if (!estaAberta()) {
+    cardVoto.style.display = 'none';
+    return;
+  }
+  if (votosAnteriores.length >= enquete.max_escolhas) {
+    cardVoto.style.display = 'none';
+    return;
+  }
+  cardVoto.style.display = '';
+}
+
+// --- dados --------------------------------------------------------
 async function carregar() {
   const resp = await fetch(`/enquetes/${enqueteId}/resultado`, { cache: 'no-store' });
 
@@ -119,27 +233,22 @@ async function carregar() {
   }
 
   enquete = await resp.json();
+  votosAnteriores = lerVotosAnteriores();
   renderCabecalho();
   renderOpcoes();
   renderResultado();
-
-  if (!estaAberta() || jaVotou) {
-    cardVoto.style.display = 'none';
-  }
+  renderVotantes();
+  atualizarFormulario();
   return true;
 }
 
-cpfInput.addEventListener('input', () => {
-  const d = cpfInput.value.replace(/\D/g, '').slice(0, 11);
-  cpfInput.value = d
-    .replace(/(\d{3})(\d)/, '$1.$2')
-    .replace(/(\d{3})(\d)/, '$1.$2')
-    .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
-});
-
+// --- envio --------------------------------------------------------
 const ERROS = {
-  cpf_invalido: 'CPF inválido: informe os 11 dígitos.',
-  cpf_ja_votou: 'Este CPF já votou nesta enquete.',
+  votante_id_invalido: 'Não foi possível identificar este navegador. Recarregue a página.',
+  nome_obrigatorio: 'Esta enquete é identificada: informe seu nome.',
+  opcao_ids_invalido: 'Selecione pelo menos uma opção.',
+  limite_de_escolhas_excedido: 'Você já atingiu o limite de opções desta enquete.',
+  voto_duplicado: 'Você já votou nesta opção.',
   enquete_fechada: 'Esta enquete já foi encerrada.',
   enquete_expirada: 'O prazo desta enquete terminou.',
   opcao_nao_pertence_a_enquete: 'Opção inválida.',
@@ -150,19 +259,31 @@ form.addEventListener('submit', async (event) => {
   event.preventDefault();
   mostrarMsg('');
 
-  const cpf = cpfInput.value.replace(/\D/g, '');
-  if (cpf.length !== 11) return mostrarMsg(ERROS.cpf_invalido, 'erro');
-  if (!opcaoEscolhida) return mostrarMsg('Escolha uma opção antes de votar.', 'erro');
+  const novas = selecionados();
+  if (novas.length === 0) return mostrarMsg('Selecione pelo menos uma opção.', 'erro');
 
-  const btn = document.getElementById('btn-votar');
-  btn.disabled = true;
-  btn.textContent = 'Enviando...';
+  const total = novas.length + votosAnteriores.length;
+  if (total > enquete.max_escolhas) {
+    return mostrarMsg(`Você pode votar em até ${enquete.max_escolhas} opção(ões).`, 'erro');
+  }
+
+  if (!enquete.anonima) {
+    const nome = inputNome.value.trim();
+    if (nome.length < 2) return mostrarMsg('Informe seu nome (mínimo 2 caracteres).', 'erro');
+  }
+
+  btnVotar.disabled = true;
+  btnVotar.textContent = 'Enviando...';
 
   try {
     const resp = await fetch(`/enquetes/${enqueteId}/votos`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cpf, opcao_id: opcaoEscolhida }),
+      body: JSON.stringify({
+        votante_id: votanteId(),
+        nome: enquete.anonima ? null : inputNome.value.trim(),
+        opcao_ids: novas,
+      }),
     });
 
     const dados = await resp.json();
@@ -172,24 +293,27 @@ form.addEventListener('submit', async (event) => {
       return;
     }
 
-    jaVotou = true;
-    mostrarMsg('Voto registrado! Obrigado.', 'ok');
-    btn.textContent = 'Voto registrado';
+    salvarVotos(novas);
+    votosAnteriores = lerVotosAnteriores();
 
-    // O contador é assíncrono (SNS → SQS → worker): espera um instante
+    mostrarMsg(
+      novas.length > 1 ? ` ${novas.length} votos registrados! Obrigado.` : 'Voto registrado! Obrigado.',
+      'ok'
+    );
+    btnVotar.textContent = 'Registrado';
+
     setTimeout(carregar, 1200);
-    setTimeout(() => { cardVoto.style.display = 'none'; }, 2500);
   } catch (err) {
     mostrarMsg('Falha de rede: ' + err.message, 'erro');
   } finally {
-    if (!jaVotou) {
-      btn.disabled = false;
-      btn.textContent = 'Votar';
+    if (votosAnteriores.length < (enquete ? enquete.max_escolhas : 1)) {
+      btnVotar.disabled = false;
+      btnVotar.textContent = 'Votar';
     }
   }
 });
 
-// Carrega e mantém atualizado (resultado ao vivo)
+// --- inicialização ------------------------------------------------
 carregar().then((ok) => {
   if (!ok) return;
   setInterval(() => {

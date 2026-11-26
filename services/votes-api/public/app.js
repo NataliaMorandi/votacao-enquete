@@ -58,9 +58,14 @@ form.addEventListener('submit', async (event) => {
   const descricao = document.getElementById('descricao').value.trim();
   const duracao_minutos = Number(document.getElementById('duracao').value);
   const opcoes = opcoesPreenchidas();
+  const anonima = document.getElementById('anonima').checked;
+  const max_escolhas = document.getElementById('duas-opcoes').checked ? 2 : 1;
 
   if (titulo.length < 3) return mostrarMsg('O título precisa ter pelo menos 3 caracteres.', 'erro');
   if (opcoes.length < 2) return mostrarMsg('Informe pelo menos 2 opções.', 'erro');
+  if (max_escolhas === 2 && opcoes.length < 2) {
+    return mostrarMsg('Para permitir duas escolhas, cadastre pelo menos 2 opções.', 'erro');
+  }
 
   const btn = document.getElementById('btn-criar');
   btn.disabled = true;
@@ -70,7 +75,14 @@ form.addEventListener('submit', async (event) => {
     const resp = await fetch('/enquetes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ titulo, descricao: descricao || null, duracao_minutos, opcoes }),
+      body: JSON.stringify({
+        titulo,
+        descricao: descricao || null,
+        duracao_minutos,
+        opcoes,
+        anonima,
+        max_escolhas,
+      }),
     });
 
     const dados = await resp.json();
@@ -132,12 +144,15 @@ async function carregarLista() {
     lista.innerHTML = enquetes
       .map((e) => {
         const fechada = e.status !== 'aberta' || new Date(e.prazo) <= new Date();
+        const modo = e.anonima ? 'anônima' : 'com nome';
+        const escolhas = e.max_escolhas === 2 ? '2 opções' : '1 opção';
         return `
           <a class="enquete-item" href="/e/${e.id}">
             <div class="titulo">${escapar(e.titulo)}</div>
             <div class="meta">
               <span class="badge ${fechada ? 'fechada' : 'aberta'}">${fechada ? 'encerrada' : 'aberta'}</span>
               <span>${e.total_votos} voto${e.total_votos === 1 ? '' : 's'}</span>
+              <span>${modo} · ${escolhas}</span>
               <span>${fechada ? 'encerrada' : tempoRestante(e.prazo)}</span>
             </div>
           </a>`;

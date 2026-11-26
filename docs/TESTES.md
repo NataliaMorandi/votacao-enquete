@@ -34,7 +34,9 @@ ENQ=$(curl -s -X POST http://$IP:3000/enquetes \
     "titulo": "Onde vamos almoçar?",
     "descricao": "Teste manual",
     "duracao_minutos": 30,
-    "opcoes": ["Opção A", "Opção B", "Opção C"]
+    "opcoes": ["Opção A", "Opção B", "Opção C"],
+    "anonima": true,
+    "max_escolhas": 1
   }')
 
 echo "$ENQ" | python3 -m json.tool
@@ -48,14 +50,24 @@ Esperado: HTTP 201, `status: "aberta"`, `prazo` = agora + 30 min.
 
 ## 3. Votar
 
+A identificação do votante é um **uuid gerado no navegador** (localStorage) —
+não há CPF. Em enquete identificada, é obrigatório enviar `nome`.
+
 ```bash
+VOTANTE=$(python3 -c 'import uuid;print(uuid.uuid4())')
+
 curl -i -X POST http://$IP:3000/enquetes/$ID/votos \
   -H 'Content-Type: application/json' \
-  -d "{\"cpf\":\"11122233344\",\"opcao_id\":\"$OPT_A\"}"
+  -d "{\"votante_id\":\"$VOTANTE\",\"opcao_ids\":[\"$OPT_A\"]}"
 ```
 
-Esperado: **201** com `voto_id` e **sem** o campo `aviso`
+Esperado: **201** com `votos[]` e **sem** o campo `aviso`
 (se aparecer `"aviso":"voto_salvo_mas_evento_nao_publicado"`, o SNS falhou).
+
+Para enquete com `max_escolhas: 2`, envie duas opções:
+`"opcao_ids":["<id1>","<id2>"]` (o mesmo `votante_id` pode votar em 1 e depois na outra).
+
+Para enquete não anônima, acrescente `"nome":"Maria Silva"`.
 
 ## 4. Resultado (prova da mensageria)
 
@@ -72,23 +84,56 @@ O campo decisivo:
 ## 5. Testes negativos (regras de negócio)
 
 ```bash
-# mesmo CPF votando 2x -> 409
-curl -s -o /dev/null -w "%{http_code}\n" -X POST http://$IP:3000/enquetes/$ID/votos \
-  -H 'Content-Type: application/json' \
-  -d "{\"cpf\":\"11122233344\",\"opcao_id\":\"$OPT_A\"}"
-# esperado: 409  ({"error":"cpf_ja_votou"})
+V=$(python3 -c 'import uuid;print(uuid.uuid4())')
 
-# CPF inválido -> 400
-curl -s -o /dev/null -w "%{http_code}\n" -X POST http://$IP:3000/enquetes/$ID/votos \
-  -H 'Content-Type: application/json' -d "{\"cpf\":\"123\",\"opcao_id\":\"$OPT_A\"}"
-
-# opção que não pertence à enquete -> 400
-curl -s -o /dev/null -w "%{http_code}\n" -X POST http://$IP:3000/enquetes/$ID/votos \
+# vota normalmente
+curl -s -o /dev/null -w "primeiro voto: %{http_code}\n" -X POST http://$IP:3000/enquetes/$ID/votos \
   -H 'Content-Type: application/json' \
-  -d '{"cpf":"55566677788","opcao_id":"00000000-0000-0000-0000-000000000000"}'
+  -d "{\"votante_id\":\"$V\",\"opcao_ids\":[\"$OPT_A\"]}"
+
+# mesmo votante, mesma opção -> 409 voto_duplicado
+curl -s -o /dev/null -w "voto repetido: %{http_code}\n" -X POST http://$IP:3000/enquetes/$ID/votos \
+  -H 'Content-Type: application/json' \
+  -d "{\"votante_id\":\"$V\",\"opcao_ids\":[\"$OPT_A\"]}"
+
+# payload sem opcoes -> 400
+curl -s -o /dev/null -w "sem opcoes: %{http_code}\n" -X POST http://$IP:3000/enquetes/$ID/votos \
+  -H 'Content-Type: application/json' -d "{\"votante_id\":\"$V\",\"opcao_ids\":[]}"
+
+# votante_id inválido -> 400
+curl -s -o /dev/null -w "votante invalido: %{http_code}\n" -X POST http://$IP:3000/enquetes/$ID/votos \
+  -H 'Content-Type: application/json' -d "{\"votante_id\":\"abc\",\"opcao_ids\":[\"$OPT_A\"]}"
+
+# opção de outra enquete -> 400 opcao_nao_pertence_a_enquete
+curl -s -o /dev/null -w "opcao invalida: %{http_code}\n" -X POST http://$IP:3000/enquetes/$ID/votos \
+  -H 'Content-Type: application/json' \
+  -d '{"votante_id":"00000000-0000-0000-0000-000000000001","opcao_ids":["00000000-0000-0000-0000-000000000000"]}'
 
 # endpoint interno sem token -> 401
-curl -s -o /dev/null -w "%{http_code}\n" -X POST http://$IP:3000/internal/close-expired
+curl -s -o /dev/null -w "sem token: %{http_code}\n" -X POST http://$IP:3000/internal/close-expired
+```
+
+### Enquete identificada (sem CPF)
+
+```bash
+E=$(curl -s -X POST http://$IP:3000/enquetes -H 'Content-Type: application/json' \
+  -d '{"titulo":"Com nome","duracao_minutos":30,"opcoes":["A","B"],
+       "anonima":false,"max_escolhas":2}')
+IDN=$(echo "$E" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
+OPS=$(echo "$E" | python3 -c 'import json,sys;print(" ".join(o["id"] for o in json.load(sys.stdin)["opcoes"]))')
+set -- $OPS
+
+# sem nome -> 400 nome_obrigatorio
+curl -s -o /dev/null -w "sem nome: %{http_code}\n" -X POST http://$IP:3000/enquetes/$IDN/votos \
+  -H 'Content-Type: application/json' -d "{\"votante_id\":\"$(python3 -c 'import uuid;print(uuid.uuid4())')\",\"opcao_ids\":[\"$1\"]}"
+
+# com nome + duas opções -> 201
+curl -s -o /dev/null -w "duas opcoes: %{http_code}\n" -X POST http://$IP:3000/enquetes/$IDN/votos \
+  -H 'Content-Type: application/json' \
+  -d "{\"votante_id\":\"$(python3 -c 'import uuid;print(uuid.uuid4())')\",\"nome\":\"Maria\",\"opcao_ids\":[\"$1\",\"$2\"]}"
+
+# resultado deve listar quem votou
+curl -s http://$IP:3000/enquetes/$IDN/resultado | python3 -m json.tool
 ```
 
 ## 6. Carga (para o dashboard ficar bonito)
