@@ -33,8 +33,8 @@ resource "aws_cloudwatch_metric_alarm" "fila_acumulando" {
   metric_name         = "ApproximateNumberOfMessagesVisible"
   statistic           = "Maximum"
   period              = 60
-  evaluation_periods  = 5
-  threshold           = 100
+  evaluation_periods  = var.alarme_periodos
+  threshold           = var.alarme_threshold
   comparison_operator = "GreaterThanThreshold"
   treat_missing_data  = "notBreaching"
 

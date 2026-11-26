@@ -68,3 +68,20 @@ variable "lambda_role_arn" {
   type        = string
   default     = ""
 }
+
+# ------------------------------------------------------------------
+# Alarme de fila (CloudWatch)
+# Em produção: 100 mensagens por 5 minutos.
+# Em demonstração (sala de aula, poucos votos): -var="alarme_threshold=5" -var="alarme_periodos=1"
+# ------------------------------------------------------------------
+variable "alarme_threshold" {
+  description = "Mensagens visíveis na fila para disparar o alarme"
+  type        = number
+  default     = 100
+}
+
+variable "alarme_periodos" {
+  description = "Quantos períodos consecutivos (1 min) acima do limiar disparam o alarme"
+  type        = number
+  default     = 5
+}

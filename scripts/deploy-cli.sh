@@ -25,6 +25,9 @@ REPO_URL="${REPO_URL:-https://github.com/NataliaMorandi/votacao-enquete.git}"
 INSTANCE_PROFILE="${INSTANCE_PROFILE:-LabInstanceProfile}"
 CIDR_GRAFANA="${CIDR_GRAFANA:-0.0.0.0/0}"
 TIPO_INSTANCIA="${TIPO_INSTANCIA:-t3.micro}"
+# Alarme de fila: produção 100/5 min; demo na sala 5/1 min
+ALARME_THRESHOLD="${ALARME_THRESHOLD:-100}"
+ALARME_PERIODOS="${ALARME_PERIODOS:-5}"
 
 RAIZ="$(cd "$(dirname "$0")/.." && pwd)"
 SAIDA_DIR="$RAIZ/infra/aws-cli"
@@ -304,7 +307,7 @@ aws_ cloudwatch put-metric-alarm \
   --alarm-description "Mais de 100 mensagens na fila por 5 minutos" \
   --namespace AWS/SQS --metric-name ApproximateNumberOfMessagesVisible \
   --dimensions "Name=QueueName,Value=${PROJETO}-tally-queue" \
-  --statistic Maximum --period 60 --evaluation-periods 5 --threshold 100 \
+  --statistic Maximum --period 60 --evaluation-periods "$ALARME_PERIODOS" --threshold "$ALARME_THRESHOLD" \
   --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching >/dev/null
 
 # ------------------------------------------------------------ saída
