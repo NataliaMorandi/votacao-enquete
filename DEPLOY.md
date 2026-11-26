@@ -266,7 +266,9 @@ o caminho API → SNS → SQS → worker → Redis está funcionando.
 2. Function name: `votacao-close-expired-polls`. Runtime: **Node.js 20.x**. Architecture: x86_64.
 3. Permissions: escolha **Use an existing role** → **`LabRole`** → **Create function**.
    *(Em laboratório não é possível criar role nova. Numa conta própria, use "Create a new role with basic Lambda permissions".)*
-4. Em **Code source**, apague o conteúdo e cole o arquivo `lambda/close-expired-polls/index.js` do repositório → **Deploy**.
+4. Em **Code source**, apague o conteúdo e cole o arquivo `lambda/close-expired-polls/index.mjs` do repositório → **Deploy**.
+
+   > ⚠️ **Use o `index.mjs` (ESM), não o antigo `index.js`.** O editor do console do Node 22+/26 cria o arquivo como ESM; código CommonJS (`exports.handler`) falha com `exports is not defined in ES module scope`. Se preferir CommonJS, envie um `.zip` com `index.js` (o Lambda trata `.js` como CJS quando não há `package.json`).
 5. **Configuration** → **Environment variables** → **Edit** → adicione:
    - `API_URL` = `http://IP-PUBLICO-DA-EC2:3000`
    - `INTERNAL_TOKEN` = o mesmo valor do `.env`
