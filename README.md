@@ -171,6 +171,56 @@ O limite de escolhas é validado em transação com `pg_advisory_xact_lock`, imp
 duplo clique/corrida. Trade-off documentado: limpar o navegador gera novo id — em
 enquete anônima não há como identificar a pessoa por definição.
 
+## 3.2. HTTPS com Caddy (domínio próprio)
+
+O serviço `caddy` termina o TLS e faz proxy reverso para a API:
+
+```
+Navegador ──HTTPS 443──▶ [Caddy] ──HTTP interno──▶ votes-api:3000
+                            │
+                            └─ certificado Let's Encrypt automático (renovação inclusa)
+```
+
+**Pré-requisitos**
+
+1. Domínio no DuckDNS apontando para o **EIP** da EC2:
+   ```
+   dig +short enquete-cloud.duckdns.org @8.8.8.8   # -> EIP
+   ```
+   (campo IPv6 em branco — o EIP é IPv4)
+2. Security Group da EC2 liberando **80 e 443** de `0.0.0.0/0`
+3. Serviço `caddy` declarado no `docker-compose.yml` e `Caddyfile` na raiz
+
+**Subida**
+
+```bash
+cd /opt/votacao
+sudo git pull
+sudo /usr/local/bin/docker-compose up -d --build
+sudo /usr/local/bin/docker-compose logs -f caddy
+```
+
+Na primeira inicialização o Caddy pede o certificado (~30 s). Quando aparecer
+`certificate obtained successfully`, teste:
+
+```bash
+curl -I https://enquete-cloud.duckdns.org/health
+```
+
+**Depois de validar**, atualize a variável de ambiente da Lambda no console:
+
+```
+API_URL=https://enquete-cloud.duckdns.org
+INTERNAL_TOKEN=<o mesmo do .env da EC2>
+```
+
+E, se quiser, feche a porta **3000** no Security Group — a API continua acessível
+por dentro da rede Docker e pelo Caddy.
+
+**Por que HTTPS importa para o app:** `crypto.randomUUID()`, `navigator.clipboard`
+e service workers só existem em contexto seguro. O front tem fallback de UUID para
+funcionar em HTTP durante o desenvolvimento, mas em HTTPS a API nativa é usada.
+
 ## 4. Alta disponibilidade
 
 A HA é obtida em três frentes complementares:

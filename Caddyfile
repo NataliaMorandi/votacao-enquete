@@ -1,0 +1,20 @@
+# ------------------------------------------------------------------
+# Caddy — termina o TLS e repassa para a API dentro da rede Docker.
+#
+# Domínio: enquete-cloud.duckdns.org -> EIP da EC2 (DNS no DuckDNS)
+#
+# O Caddy pede o certificado ao Let's Encrypt automaticamente na
+# primeira subida e renova sozinho antes de expirar. Nada de certbot,
+# cron ou renovação manual.
+# ------------------------------------------------------------------
+
+enquete-cloud.duckdns.org {
+	# logs em JSON para o CloudWatch (driver awslogs no compose)
+	log {
+		output stdout
+		format json
+	}
+
+	# a API continua ouvindo na 3000, mas só dentro da rede do Docker
+	reverse_proxy votes-api:3000
+}

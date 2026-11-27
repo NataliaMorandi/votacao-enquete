@@ -40,6 +40,29 @@ services:
         awslogs-region: ${AWS_REGION}
         awslogs-stream: api
 
+  # ----------------------------------------------------------------
+  # Caddy = porta de entrada HTTPS (proxy reverso + certificado automático)
+  # Navegador --443/TLS--> Caddy --HTTP interno--> votes-api:3000
+  # ----------------------------------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    ports:
+      - "80:80"       # HTTP-01 (Let's Encrypt) + redirect para HTTPS
+      - "443:443"     # TLS-ALPN + tráfego HTTPS
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data        # certificados emitidos (sobrevive ao recreate)
+      - caddy_config:/config
+    depends_on:
+      - votes-api
+    logging:
+      driver: awslogs
+      options:
+        awslogs-group: /votacao/caddy
+        awslogs-region: ${AWS_REGION}
+        awslogs-stream: caddy
+
   tally-worker:
     build: ./services/tally-worker
     image: votacao/tally-worker:latest
@@ -134,3 +157,5 @@ volumes:
   redisdata:
   promdata:
   grafanadata:
+  caddy_data:  # certificados do Let's Encrypt
+  caddy_config:
