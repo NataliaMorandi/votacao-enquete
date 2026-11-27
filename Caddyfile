@@ -1,11 +1,11 @@
 # ------------------------------------------------------------------
-# Caddy — termina o TLS e repassa para a API dentro da rede Docker.
+# Caddy — termina o TLS e faz proxy reverso para os serviços internos.
+#
+#   /            -> votes-api:3000   (enquete)
+#   /grafana/*   -> grafana:3000     (observabilidade)
 #
 # Domínio: enquete-cloud.duckdns.org -> EIP da EC2 (DNS no DuckDNS)
-#
-# O Caddy pede o certificado ao Let's Encrypt automaticamente na
-# primeira subida e renova sozinho antes de expirar. Nada de certbot,
-# cron ou renovação manual.
+# Certificado Let's Encrypt automático, inclusive renovação.
 # ------------------------------------------------------------------
 
 enquete-cloud.duckdns.org {
@@ -15,6 +15,16 @@ enquete-cloud.duckdns.org {
 		format json
 	}
 
-	# a API continua ouvindo na 3000, mas só dentro da rede do Docker
-	reverse_proxy votes-api:3000
+	# /grafana -> /grafana/ (o Grafana gera links com barra no final)
+	redir /grafana /grafana/ 301
+
+	handle /grafana/* {
+		uri strip_prefix /grafana
+		reverse_proxy grafana:3000
+	}
+
+	# todo o resto vai para a API
+	handle {
+		reverse_proxy votes-api:3000
+	}
 }

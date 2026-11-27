@@ -51,7 +51,7 @@ flowchart TB
             PG[("🐘 postgres:16")]
             RD[("⚡ redis:7")]
             PROM["📦 Prometheus :9090"]
-            GRAF["📦 Grafana :3001"]
+            GRAF["📦 Grafana /grafana"]
             CADV["📦 cAdvisor"]
         end
 
@@ -217,6 +217,10 @@ INTERNAL_TOKEN=<o mesmo do .env da EC2>
 E, se quiser, feche a porta **3000** no Security Group — a API continua acessível
 por dentro da rede Docker e pelo Caddy.
 
+**Grafana pelo mesmo domínio:** o compose não publica mais a porta `3001`.
+O Caddy serve o Grafana em `/grafana/` (`GF_SERVER_SERVE_FROM_SUB_PATH=true`) e
+o resto do domínio vai para a API. Depois de validar, remova a regra `3001` do SG.
+
 **Por que HTTPS importa para o app:** `crypto.randomUUID()`, `navigator.clipboard`
 e service workers só existem em contexto seguro. O front tem fallback de UUID para
 funcionar em HTTP durante o desenvolvimento, mas em HTTPS a API nativa é usada.
@@ -255,7 +259,7 @@ docker restart votes-api     # volta em segundos via restart: always
 | Métricas de aplicação | Prometheus (`/metrics` nas duas aplicações) | `votos_aceitos_total`, `votos_processados_total`, `http_request_duration_seconds` |
 | Métricas de containers | cAdvisor | CPU/memória por container |
 | Métricas de infraestrutura | CloudWatch | `AWS/SQS ApproximateNumberOfMessagesVisible`, EC2 |
-| Dashboard | **Grafana** (provisionado em `observability/grafana`) | `http://IP:3001` — dashboard "Votação — Visão Geral" |
+| Dashboard | **Grafana** (provisionado em `observability/grafana`) | `https://enquete-cloud.duckdns.org/grafana` — dashboard "Votação — Visão Geral" |
 | Alarme | CloudWatch Alarm | > 100 mensagens na fila por 5 min |
 
 O dashboard é provisionado como código (`observability/grafana/dashboards/votacao.json`) e sobe automaticamente:
