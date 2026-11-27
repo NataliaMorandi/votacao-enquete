@@ -19,7 +19,8 @@ enquete-cloud.duckdns.org {
 	redir /grafana /grafana/ 301
 
 	handle /grafana/* {
-		uri strip_prefix /grafana
+		# NÃO usar "uri strip_prefix": com GF_SERVER_SERVE_FROM_SUB_PATH=true
+		# o próprio Grafana espera receber /grafana/ e gera os links com o prefixo.
 		reverse_proxy grafana:3000
 	}
 
